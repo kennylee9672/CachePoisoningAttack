@@ -226,7 +226,9 @@ int main(int argc, char *argv[])
     //DEBUG:
     printf("\nDEBUG: response = ");
     for (int i = 0; i < dataResponse - questionStart; i++)
+    {
         printf("%c", *(questionStart + i));
+    }
     printf("\n");
 
     /////////////////////////////////////////////////////////////////////
@@ -344,6 +346,7 @@ int main(int argc, char *argv[])
 
     while (1)
     {
+        // xxxx.example.com
         int charnumber = 1 + rand() % 5;
         *(data + charnumber) += 1;                                                        // Set name in query with random string
         udp->udph_chksum = check_udp_sum(buffer, packetLength - sizeof(struct ipheader)); // Recalculate checksum for UDP packet
